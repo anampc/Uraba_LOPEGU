@@ -1,0 +1,958 @@
+---
+title: "Uraba_analisis"
+author: "Ana Palacio-Castro"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    fig_height: 8
+    fig_width: 8
+    df_print: paged
+    toc: yes
+    toc_float: true
+bibliography: packages.bib
+nocite: '@*'
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r, message=FALSE}
+    library(nortest)  
+    library(ggmap)
+    library(ggplot2)
+    library(tidyverse)
+    library(plyr)
+    library(reshape2)
+
+    library(lme4)
+    library(vegan)
+    library(ggfortify)
+    library(ggthemes)
+    library(FactoMineR)
+    library(ggrepel)
+    library(PerformanceAnalytics)
+
+
+# Plots
+MyTheme<-theme_bw() +  
+theme(legend.position="top",
+          plot.background=element_blank(),
+          axis.text.x = element_text(angle = 90, vjust = 0.5),
+          panel.grid.major.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          legend.box.background = element_rect(),
+          legend.title = element_blank(),
+          panel.background =element_rect(fill = NA, 
+                                         color = "black"))#+
+  #guides(fill=guide_legend(nrow=2,byrow=TRUE), shape=guide_legend(nrow=3,byrow=TRUE))
+
+# Season_fill<-scale_fill_manual(values =
+#                            c("#2b83ba", "#abdda4",
+#                              "#d7191c", "#fdae61"))
+# 
+# Season_colour<-scale_colour_manual(values =
+#                            c("#2b83ba", "#abdda4",
+#                              "#d7191c", "#fdae61"))
+# 
+Site_shapes13<- scale_shape_manual(values=c(0,3,2,1,16,5,6,7,4,15,8,17,18))
+# Zone_shapes3<- scale_shape_manual(values=c(21,23,24))
+
+```
+
+# Leer/explorar datos
+
+## Data 
+
+Time points, dates, time, and sample location
+
+```{r}
+Data<-read.csv("Data/All_data.csv")
+
+Data$TimePoint<-factor(Data$TimePoint, levels = c("4M", "5M", "6M", "7M"))
+Data$Station<-as.factor(Data$Station)
+Data$Site<-as.factor(Data$Site)
+Data$Date<-as.Date(Data$Date)
+row.names(Data)<-Data$Sample
+# head(Data)
+summary(Data)
+
+Station<-Data %>% select(c("Station", "Site"))
+```
+
+
+## Data exploration
+
+Data from time points 4 to 7 are used, since the multiparameter was not calibrated in the previous time points. 
+
+```{r}
+    chart.Correlation(Data %>% select('Transparency_m':'Seston_mg.L'), method = "spearman")
+    #chart.Correlation(Data, method = "kendall")
+
+    chart.Correlation(Data %>% select('Transparency_m':'Taxa_S'), method = "spearman")
+    #chart.Correlation(Data, method = "kendall")
+    
+    chart.Correlation(Data %>% select('Acaro':'Larvas.de.Peces'), method = "spearman")
+    #chart.Correlation(Data, method = "kendall")
+    
+    chart.Correlation(Data %>% select('Larvas.de.Peces':'Diptera.pupa'), method = "spearman")
+    #chart.Correlation(Data, method = "kendall")
+    
+```
+
+# 1 Physicochemical data and river-ocecean transition
+
+## 1.1 correlations
+
+```{r}
+head(Data)
+  # 1. Visualizar variables
+    plot(Data %>% select('Transparency_m':'Seston_mg.L'))
+    chart.Correlation(Data[10:16])
+  # Transparency_m, Temperature_C, salinidad y conductividad parecen relacionarse. 
+  # Tal vez tambien pH y temperatuora
+
+
+# 2. Son estas variables normales?
+  Tem<-ggplot(Data, aes(x=Temperature_C)) +
+    geom_histogram()+ MyTheme
+  Tem 
+    #library(nortest) # Paquete que tiene varios test de normalidad cvm supuestamente sirve para muestras pequenas
+    cvm.test(Data$Temperature_C) # P> 0.05 No se puede rechazar la Ho de que los datos son normales :)
+    qqnorm(Data$Temperature_C)
+    qqline(Data$Temperature_C)
+    
+  Sal<-ggplot(Data, aes(x=Salinity_psu))+
+    geom_histogram()+ MyTheme
+  Sal
+    cvm.test(Data$Salinity_psu) # NO normal
+    qqnorm(Data$Salinity_psu)
+    qqline(Data$Salinity_psu)
+    
+  Trans<-ggplot(Data, aes(x=Transparency_m ))+
+    geom_histogram()+ MyTheme
+  Trans
+    cvm.test(Data$Transparency_m) # NO normal
+    qqnorm(Data$Transparency_m)
+    qqline(Data$Transparency_m)
+    
+  pH<-ggplot(Data, aes(x=pH ))+
+    geom_histogram()+ MyTheme
+  pH
+    cvm.test(Data$pH) # NO normal
+    qqnorm(Data$pH)
+    qqline(Data$pH)
+  
+```
+
+Segundo, evaluar las correlaciones. 
+* Recuerden que en teoria no se deben calcular correlaciones con datos que no son normales (Salinidad y Temperature_C)
+   
+```{r}
+ 
+# Temepratura vs Transparency_m (Salinidad en color)
+Temperature<-ggplot(Data, aes(x=Transparency_m, y=Temperature_C, colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ 
+      scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency (m)")+ ylab("Temperature (C)")+
+      geom_text_repel(aes(x=Transparency_m, 
+                          y=Temperature_C, label = Site), size=3)
+Temperature
+Temperature+facet_wrap(~TimePoint)
+
+# Modelo
+  Temperature.lm<-lm(data = Data, Temperature_C~Transparency_m)  
+  summary(Temperature.lm)
+
+
+            
+# Salinidad vs Transparency_m (Temperature en color)    
+  Salinidad<-ggplot(Data, aes(x=Transparency_m, 
+                    y=Salinity_psu, colour=Temperature_C)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ 
+        xlab("Transparency (m)")+ ylab("Salinity (psu)")+
+        geom_text_repel(aes(x=Transparency_m, y=Salinity_psu, 
+                            label = Site), size=3)
+  Salinidad
+  Salinidad +facet_wrap(~TimePoint)  
+  
+  Salinidad<-ggplot(Data, aes(x=Transparency_m, 
+                    y=Salinity_psu, colour=Temperature_C)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ 
+        xlab("Transparency (m)")+ ylab("Salinity (psu)")+
+        geom_text_repel(aes(x=Transparency_m, y=Salinity_psu, 
+                            label = Site), size=3)
+  Salinidad
+  Salinidad +facet_wrap(~TimePoint)  
+  
+  # Modelo
+  Salinidad.lm<-lm(data = Data, Salinity_psu~Transparency_m)  
+    summary(Salinidad.lm)
+  # Recuerden que salinidad no es normal
+
+          
+# Temperetura vs Salinidad (Transparencia en color) 
+    Salinidad2<-ggplot(Data, aes(x=Temperature_C, y=Salinity_psu, colour=Transparency_m)) + 
+        #geom_smooth(method=lm, colour="gray", se=FALSE)+
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Temperature (C)")+ ylab("Salinity (psu)")+
+        geom_text_repel(aes(x=Temperature_C, y=Salinity_psu, label = Site), size=3)
+  Salinidad2
+  Salinidad2 +facet_wrap(~TimePoint) 
+      
+  Salinidad2.lm<-lm(data = Data, Salinity_psu~Temperature_C)  
+  summary(Salinidad2.lm)
+  # Yo no consideraria este, pues las dos variables NO son normales. 
+      
+  
+# pH vs Transparency_m (Salinidad en color)    
+    pH_1<-ggplot(Data, aes(x=Transparency_m, y=pH, colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Tranparency (m)")+ ylab("pH")+
+      geom_text_repel(aes(x=Transparency_m, y=pH, label = Site), size=3)
+    pH_1
+    pH_1 +facet_wrap(~TimePoint) 
+    
+  # Modelo
+    pH_1.lm<-lm(data = Data, pH~Transparency_m)  
+    summary(pH_1.lm)
+    
+      
+# pH vs Temperature (Salinidad en color)       
+    pH_2<-ggplot(Data, aes(x=Temperature_C, y=pH, colour=Salinity_psu)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Temperature (m)")+ ylab("pH")+
+        geom_text_repel(aes(x=Temperature_C, y=pH, label = Site), size=3)
+    pH_2 +facet_wrap(~TimePoint) 
+    
+    pH_3<-ggplot(Data, aes(x=Temperature_C, y=pH, colour=Seston_mg.L )) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Temperature (m)")+ ylab("pH")+
+        geom_text_repel(aes(x=Temperature_C, y=pH, label = Site), size=3)
+    pH_3 +facet_wrap(~TimePoint) 
+    
+    # Modelo
+    pH_2.lm<-lm(data = Data, pH~Temperature_C)  
+    summary(pH_2.lm)
+    
+    
+  # Chla vs Oxigeno (Tranparecia en color)       
+    Chla<-ggplot(Data, aes(x=(Chla_mg.m3), y=DO_mg.L, colour=Transparency_m)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Chlorophyll-a")+ ylab("Dissolved Oxygen")+
+        geom_text_repel(aes(x=(Chla_mg.m3), y=DO_mg.L, label = Site), size=3)
+    Chla
+    Chla + facet_wrap(~TimePoint)
+    
+    # Modelo
+    Oxigeno.lm<-lm(data = Data, DO_mg.L~Chla_mg.m3)  
+    summary(Oxigeno.lm)
+    
+
+  # Chla vs Tranparecia (Oxigeno en color)       
+    Chla_2<-ggplot(Data, aes(x=Transparency_m, y=Chla_mg.m3, colour=DO_mg.L)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Transparency (m)")+ ylab("Clorofila a")+
+        geom_text_repel(aes(x=Transparency_m, y=Chla_mg.m3, label = Site), size=3)
+    Chla_2
+    Chla_2 + facet_wrap(~TimePoint)
+    
+    # Modelo
+    Chla.lm<-lm(data = Data, Chla_mg.m3~Transparency_m)  
+      summary(Chla.lm)
+     # Recuerden que Temperature_C no es normal
+      
+    # Chla vs Transparency (Seston en color)       
+    Chla_Tranparencia<-ggplot(Data, aes(x=Transparency_m, y=Chla_mg.m3, colour=Seston_mg.L)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Transparency (m)")+ ylab("Clorofila a")+
+        geom_text_repel(aes(x=Transparency_m, y=Chla_mg.m3, label = Site), size=3)
+    Chla_Tranparencia
+    
+    Chla_Tranparencia + facet_wrap(~TimePoint)
+    
+    
+    # Chla vs Seston_mg.L (Transparency en color)       
+    Chla_Seston<-ggplot(Data, aes(x=Seston_mg.L, y=Chla_mg.m3, colour=Transparency_m)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Seston_mg.L")+ ylab("Clorofila a")+
+        geom_text_repel(aes(x=Seston_mg.L, y=Chla_mg.m3, label = Site), size=3)
+    Chla_Seston 
+    Chla_Seston + facet_wrap(~TimePoint)
+    
+    # Modelo
+      Chla.lm<-lm(data = Data, Chla_mg.m3~Transparency_m)  
+      summary(Chla.lm)
+     
+      
+    # Salinidad vs BIOmasa 
+    Seston<-ggplot(Data, aes(x=Salinity_psu, y=Seston_mg.L, colour=Temperature_C)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Salinity (psu)")+ ylab("Seston_mg.L")+
+        geom_text_repel(aes(x=Salinity_psu, y=Seston_mg.L, label = Site), size=3)
+    Seston + facet_wrap(~TimePoint)
+    
+    # Modelo
+    Seston.lm<-lm(data = Data, Seston_mg.L~Salinity_psu)  
+    summary(Seston.lm)
+    
+    
+    # Transparecia vs Seston_mg.L 
+    Seston2<-ggplot(Data, aes(x=Transparency_m, y=Seston_mg.L, colour=Salinity_psu)) + 
+        scale_colour_gradient(low="blue", high = "red")+
+        geom_point()+ MyTheme+ xlab("Transparency (m)")+ ylab("Seston_mg.L")+
+        geom_text_repel(aes(x=Transparency_m, y=Seston_mg.L, label = Site), size=3)
+    Seston2
+    Seston + facet_wrap(~TimePoint)
+  
+```
+
+Pueden correr mas variables fisicas si quieren, pero lo mejor para mostrar la correlacion entre las variables fcoquimicas (usandolas todas al mismo timpo es el PCA)
+
+
+# 1.2 PCA of physicochimical data 
+
+```{r}
+
+Data_PCA<-Data %>% select(-c('Station':'Lon'))
+Data_PCA<-Data_PCA %>% select(-c('Date':'Meta_ID'))
+Data_PCA<-Data_PCA %>% select(c('TimePoint':'Seston_mg.L'))
+    
+Data.pca <- rda(Data_PCA[, (3:9)], scale=TRUE)
+Data.pca2 <- prcomp(Data_PCA[, (3:9)], scale=TRUE)
+summary(Data.pca)
+
+# Checking if the PC axes are meaningful
+eigenval <- Data.pca$CA$eig   # Here you will get the eigenvalues
+sitecoord <- Data.pca$CA$u[,1:2]   # The site coordinates along PC1 and PC2
+  eig <- data.frame(eigenval)
+  eig$nb <- c(1:length(eigenval))
+  eig$prop <- eig$eigenval/sum(eig$eigenval)
+  eig
+  
+# (Kaiser-Guttman)
+par(mfrow=c(1,2))
+  barplot(eig$eigenval, main="Eigenvalues",las=2)
+  abline(h=mean(eig$eigenval),col="red")    # average eigenvalue
+  legend("topright","Average eigenvalue",lwd=1,col=2,bty="n")
+  
+  barplot(100*eig$prop,main="% of variance",las=2)
+par(mfrow=c(1,1))
+
+autoplot(Data.pca2, data = Data_PCA, colour="TimePoint", 
+         shape="Site",
+         loadings = TRUE, loadings.colour = 'black',
+         loadings.label = TRUE, loadings.label.size = 3,
+         loadings.label.vjust = -1.0,
+         loadings.label.colour="black",
+         frame = TRUE, frame.type = 'norm')+
+MyTheme + Site_shapes13 # + facet_wrap(~TimePoint)
+
+```
+
+
+# 2. Biological data 
+
+## Riqueza, H, Densidad, Biomasa...
+
+```{r}
+Riqueza<-Data[,c("Sample", "Site","TimePoint", "Taxa_S", "Shannon_H", "Equitability_J")]
+
+Riqueza.data <- melt(Riqueza, id.vars = c("Sample", "Site","TimePoint"))
+Riqueza.data$Site<-factor(Riqueza.data$Site, 
+                              levels=c("El Uno", "Roto",  "Leoncito",
+                                       "Currulao", "Candelaria", "Yarumal", 
+                                       "Marirrio",  "Margarita", 
+                                       "RioNecocli","P.Arenas N", "P.Arenas S",
+                                       "Bajo Medio", "Sabanilla"
+                                        ))
+
+
+  Riqueza_grafica<-ggplot(Riqueza.data, aes(x=Site, y=value), fill=="white") + 
+      MyTheme+geom_bar(stat="identity", aes(fill=Site))+
+      theme(legend.position="right", legend.box = "vertical")
+  Riqueza_grafica + facet_wrap(~variable, ncol=1, scales = "free_y")
+  Riqueza_grafica + facet_grid(~variable~TimePoint,  scales = "free_y") + MyTheme
+  
+  Riqueza_grafica2<-ggplot(Riqueza.data, aes(x=TimePoint, y=value), fill=="white") + 
+      theme_bw()+geom_bar(stat="identity", aes(fill=TimePoint))+
+      theme(legend.position="right", legend.box = "vertical")
+  #Riqueza_grafica2 + facet_wrap(~variable, ncol=1, scales = "free_y")
+  Riqueza_grafica2 + facet_grid(~variable~Site,  scales = "free_y") + MyTheme
+```
+
+## Densidad por taxa
+
+```{r}
+
+Abundancias<-Data %>% select('Acaro':'Diptera.pupa')
+Abundancias$Sample<-Data$Sample
+Abundancias$Site<-Data$Site
+Abundancias$TimePoint<-Data$TimePoint
+
+Abundancia.data <- melt(Abundancias, id.vars = c("Sample", "Site", "TimePoint"))
+colnames(Abundancia.data)<-c("Sample", "Site", "TimePoint", "Taxon", "Densidad")
+Abundancia.data$Densidad<-(Abundancia.data$Densidad/1000)
+Abundancia.data$Site<-factor(Abundancia.data$Site, 
+                              levels=c("El Uno", "Roto",  "Leoncito",
+                                       "Currulao", "Candelaria", "Yarumal", 
+                                       "Marirrio",  "Margarita", 
+                                       "RioNecocli","P.Arenas N", "P.Arenas S",
+                                       "Bajo Medio", "Sabanilla"
+                                        ))
+
+
+  
+```
+
+### Densidad - muestreo 
+
+```{r}
+  Densidad<-ggplot(Abundancia.data, aes(x=Taxon, y=Densidad, fill=TimePoint)) + 
+      MyTheme + geom_bar(stat="identity")+
+      xlab("Taxa")+ ylab("Densidad (#/m3)")+ scale_y_continuous(trans='sqrt')+ 
+      facet_wrap(~Site)
+  Densidad
+  
+  Densidad<-ggplot(Abundancia.data, aes(x=Taxon, y=(log10(1+Densidad)), 
+                                      fill=TimePoint)) + 
+      MyTheme + geom_bar(stat="identity")+
+      theme(legend.position="right", legend.box = "vertical",
+            #axis.text.x = element_blank(), 
+            axis.title.x = element_blank())+
+      xlab("Taxa")+ ylab("Densidad de organismos(log10 (#/m3 + 1))")+
+      facet_wrap(~Site, ncol=3)
+  Densidad
+```
+
+### Densidad - muestreo 
+
+```{r}
+  Densidad<-ggplot(Abundancia.data, aes(x=Site, y=Densidad, fill=Taxon)) + 
+      MyTheme + geom_bar(stat="identity")+
+      xlab("Taxa")+ ylab("Densidad (#/m3)")+ scale_y_continuous(trans='sqrt')+ 
+      facet_wrap(~TimePoint)
+  Densidad
+  
+  Densidad<-ggplot(Abundancia.data, aes(x=Site, y=(log10(1+Densidad)), 
+                                      fill=Taxon)) + 
+      MyTheme + geom_bar(stat="identity")+
+      theme(legend.position="bottom", legend.box = "vertical",
+            #axis.text.x = element_blank(), 
+            axis.title.x = element_blank())+
+      xlab("Taxa")+ ylab("Densidad de organismos(log10 (#/m3 + 1))")+
+      facet_wrap(~TimePoint, ncol=4)
+  Densidad
+```
+
+
+## Explorar relacion entre fcoqcos y biologicos 
+
+Huevos redondos 
+
+```{r}
+    Hu.re_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Huevos.redondos, colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Huevos Redondos")+
+      geom_text_repel(aes(x=Chla_mg.m3, y=Huevos.redondos, label = Site), size=3)
+    Hu.re_1
+    Hu.re_1+ facet_wrap(~TimePoint)
+    
+    Hu.re_2<-ggplot(Data, aes(x=Salinity_psu, y=Huevos.redondos,
+                              colour=Transparency_m)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinity (psu)")+ ylab("Huevos Redondos")+
+      geom_text_repel(aes(x=Salinity_psu, y=Huevos.redondos, label = Site), size=3)
+    Hu.re_2
+    Hu.re_2 + facet_wrap(~TimePoint)
+    
+    Hu.re_3<-ggplot(Data, aes(x=Transparency_m, y=Huevos.redondos,
+                              colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Huevos Redondos")+
+      geom_text_repel(aes(x=Transparency_m, y=Huevos.redondos, label = Site), size=3)
+    Hu.re_3
+    Hu.re_3  + facet_wrap(~TimePoint)
+
+```
+
+
+Huevos ovalados 
+
+```{r}
+    Hu.ov_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Huevos.ovalados, colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Huevos Ovalados")+
+      geom_text_repel(aes(x=Chla_mg.m3, y=Huevos.ovalados, label = Site), size=3)
+    Hu.ov_1
+    Hu.ov_1+facet_wrap(~TimePoint)
+    
+    Hu.ov_2<-ggplot(Data, aes(x=Salinity_psu, y=Huevos.ovalados,
+                              colour=Transparency_m)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinity psu")+ ylab("Huevos Ovalados")+
+      geom_text_repel(aes(x=Salinity_psu, y=Huevos.ovalados, label = Site), size=3)
+    Hu.ov_2  + facet_wrap(~TimePoint)
+    
+    # Esta me parece que tiene futuro... 
+    
+    Hu.ov_3<-ggplot(Data, aes(x=Transparency_m, y=Huevos.ovalados,
+                              colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Huevos Ovalados")+
+      geom_text_repel(aes(x=Transparency_m, y=Huevos.ovalados, label = Site), size=3)
+    Hu.ov_3  + facet_wrap(~TimePoint)
+    # Esta me parece tambien puede tener futuro... 
+    
+```
+
+
+Organismos  
+
+```{r}
+    Org_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Seston_mg.L , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Organismos")+
+      geom_text_repel(aes(x=Chla_mg.m3, y=Seston_mg.L , label = Site), size=3)
+    Org_1  + facet_wrap(~TimePoint)
+    
+    Org_2<-ggplot(Data, aes(x=Salinity_psu, y=Seston_mg.L , colour=Transparency_m)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinity_psu")+ ylab("Organismos")+
+      geom_text_repel(aes(x=Salinity_psu, y=Seston_mg.L , label = Site), size=3)
+    Org_2  + facet_wrap(~TimePoint)
+    
+    Org_3<-ggplot(Data, aes(x=Transparency_m, y=Seston_mg.L , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Organismos")+
+      geom_text_repel(aes(x=Transparency_m, y=Seston_mg.L,
+                          label = Site), size=3)
+    Org_3  + facet_wrap(~TimePoint)
+    
+```
+
+Biomasa volumetrica   
+
+```{r}
+    Vol_1<-ggplot(Data, aes(x=Chla_mg.m3, y= Biovolumen , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Biovolumen")+
+      geom_text_repel(aes(x=Chla_mg.m3, y= Biovolumen , label = Site), size=3)
+    Vol_1
+    Vol_1 + facet_wrap(~TimePoint)
+    
+    BioVol_Sal<-ggplot(Data, aes(x=Salinity_psu, y= Biovolumen , colour=Chla_mg.m3)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinity_psu (psu)")+ ylab("Biovolumen")+
+      geom_text_repel(aes(x=Salinity_psu, y= Biovolumen , label = Site), size=3)
+    BioVol_Sal + facet_wrap(~TimePoint)
+    
+    Vol_2<-ggplot(Data, aes(x=Salinity_psu, y= Biovolumen , colour=Transparency_m)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinity_psu")+ ylab("Biomasa")+
+      geom_text_repel(aes(x=Salinity_psu, y= Biovolumen , label = Site), size=3)
+    Vol_2 + facet_wrap(~TimePoint)
+    
+    Vol_3<-ggplot(Data, aes(x=Transparency_m, y= Biovolumen , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Biomasa")+
+      geom_text_repel(aes(x=Transparency_m, y= Biovolumen , label = Site), size=3)
+    Vol_3 + facet_wrap(~TimePoint)
+    
+```
+
+Seston   
+
+```{r}
+    Seston_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Seston_mg.L, colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Seston")+
+      geom_text_repel(aes(x=Chla_mg.m3, y=Seston_mg.L, label = Site), size=3)
+    Seston_1
+    Seston_1+ facet_wrap(~TimePoint)
+    
+    Seston_2<-ggplot(Data, aes(x=Salinity_psu, y=Seston_mg.L, colour=Transparency_m)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinity_psu")+ ylab("Seston")+
+      geom_text_repel(aes(x=Salinity_psu, y=Seston_mg.L, label = Site), size=3)
+    Seston_2 + facet_wrap(~TimePoint)
+    
+    Seston_3<-ggplot(Data, aes(x=Transparency_m, y=Seston_mg.L,
+                               colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Seston")+
+      geom_text_repel(aes(x=Transparency_m, y=Seston_mg.L, label = Site), size=3)
+    Seston_3 + facet_wrap(~TimePoint)
+    
+     Chl_3<-ggplot(Data, aes(x=Transparency_m, y=Chla_mg.m3 , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Clorophila a")+
+      geom_text_repel(aes(x=Transparency_m, y=Chla_mg.m3, label = Site), size=3)
+    Chl_3
+    Chl_3 + facet_wrap(~TimePoint)
+```
+
+Riqueza 
+
+```{r}
+    S_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Taxa_S , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Riqueza")+
+      geom_text_repel(aes(x=Chla_mg.m3, y=Taxa_S , label = Site), size=3)
+    S_1
+    S_1 + facet_wrap(~TimePoint)
+      
+    # S_1b<-ggplot(Data, aes(x=Salinity_psu, y=Taxa_S , colour=Chla_mg.m3)) + 
+    #   #geom_smooth(method=lm, colour="gray")+
+    #   geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+    #   xlab("Salinidad (psu)")+ ylab("Riqueza")+
+    #   geom_text_repel(aes(x=Salinity_psu, y=Taxa_S , label = Site), size=3)
+    # S_1b
+    # S_1 + facet_wrap(~TimePoint)
+  
+    S_2<-ggplot(Data, aes(x=Salinity_psu, y=Taxa_S , colour=Transparency_m)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinidad (psu)")+ ylab("Riqueza")+
+      geom_text_repel(aes(x=Salinity_psu, y=Taxa_S , label = Site), size=3)
+    S_2 + facet_wrap(~TimePoint)
+    
+    S_2b<-ggplot(Data, aes(x=Salinity_psu, y=Taxa_S , colour=Transparency_m)) + 
+      geom_smooth(method=lm, colour="gray", se=F)+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinidad (psu)")+ ylab("Riqueza")+
+      geom_text_repel(aes(x=Salinity_psu, y=Taxa_S , label = Site), size=3)
+    S_2b + facet_wrap(~TimePoint)
+    
+    # Modelo
+    Riqueza_2.lm<-lm(data = Data, Taxa_S~Salinity_psu)  
+    summary(Riqueza_2.lm)
+    # ESTE VALE LA PENA
+      
+    S_3<-ggplot(Data, aes(x=Transparency_m, y=Taxa_S , colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Transparency_m")+ ylab("Riqueza")+
+      geom_text_repel(aes(x=Transparency_m, y=Taxa_S , label = Site), size=3)
+    S_3 + facet_wrap(~TimePoint)
+    
+    Riqueza_3.lm<-lm(data = Data, Taxa_S~Transparency_m)  
+      summary(Riqueza_3.lm)
+
+```
+
+Diversidad 
+
+```{r}
+  H_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Shannon_H, colour=Salinity_psu)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Clorofila")+ ylab("Diversidad (H)")+
+      geom_text_repel(aes(x=Chla_mg.m3, y=Shannon_H, label = Site), size=3)
+    H_1
+    H_1+ facet_wrap(~TimePoint)
+    
+    H_1b<-ggplot(Data, aes(x=Salinity_psu, y=Shannon_H , colour=Chla_mg.m3)) + 
+      #geom_smooth(method=lm, colour="gray")+
+      geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+      xlab("Salinidad (psu)")+ ylab("Diversidad")+
+      geom_text_repel(aes(x=Salinity_psu, y=Shannon_H , label = Site), size=3)
+    H_1b
+    H_1b + facet_wrap(~TimePoint)
+```
+
+
+# que era Densidad ???
+
+```{r}
+    # Densidad_1<-ggplot(Data, aes(x=Chla_mg.m3, y=Densidad , colour=Salinity_psu)) + 
+    #   #geom_smooth(method=lm, colour="gray")+
+    #   geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+    #   xlab("Clorofila")+ ylab("Densidad")+
+    #   geom_text_repel(aes(x=Chla_mg.m3, y=Densidad , label = Site), size=3)
+    # Densidad_1
+    # Densidad_1 + facet_wrap(~TimePoint)
+    
+    # tiff('Densidad_Chla_2.tiff', units="in", width=5, height=4, res=300)
+    # Densidad_1 + xlim(0,0.005)
+    # dev.off()
+    # 
+    # Densidad_2<-ggplot(Data, aes(x=Salinity_psu, y=Densidad , colour=Chla_mg.m3)) + 
+    #   #geom_smooth(method=lm, colour="gray")+
+    #   geom_point()+ MyTheme+ scale_colour_gradient(low="blue", high = "red")+
+    #   xlab("Salinidad (psu)")+ ylab("Densidad")+
+    #   geom_text_repel(aes(x=Salinity_psu, y=Densidad , label = Site), size=3)
+    # Densidad_2 + facet_wrap(~TimePoint)
+    # 
+    # tiff('Densidad_Salinidad.tiff', units="in", width=5, height=4, res=300)
+    # Densidad_2
+    # dev.off()
+  
+```
+
+## PCA con datos biologicos
+* Hay muchos datos, decidir se se usan todos los grupos
+
+```{r}
+#library(vegan) 
+
+# 1.Select only abundance data 
+Abundancias2<-Abundancias
+str(Abundancias2)
+row.names(Abundancias2)<-Abundancias2$Sample
+bio2<-Abundancias2 %>% select(-c("Sample":"TimePoint"))
+                             
+# 1. Transformar los datos de abundancia (hay varias opciones)
+? decostand
+    bio.transf.1 = decostand(bio2,"total")    # relative abundance profiles
+    bio.transf.2 = decostand(bio2,"norm")     # chord-transformation 
+    bio.transf.3 = decostand(bio2,"chi.sq")   # chi-square transformation
+    bio.transf.4 = decostand(bio2,"hel")      # Hellinger transformation
+    # "The Hellinger distance is also a measure recommended for clustering or
+    # ordination of species abundance data (Rao 1995)".
+    bio.transf.5 = decostand(bio2,"pa")       # convert to presence/absence (0/1) 
+    
+    Bio1.pca <- rda(bio.transf.1, scale=TRUE)  # 'scale=TRUE' calls for a standardization
+    Bio2.pca <- rda(bio.transf.2, scale=TRUE)  # 'scale=TRUE' calls for a standardization
+    Bio3.pca <- rda(bio.transf.3, scale=TRUE)  # 'scale=TRUE' calls for a standardization
+    Bio4.pca <- rda(bio.transf.4, scale=TRUE)  # 'scale=TRUE' calls for a standardization
+    Bio5.pca <- rda(bio.transf.5, scale=TRUE)  # 'scale=TRUE' calls for a standardization
+    
+    # Pueden revisar los PCAs con cada transformacion. A mi me parece que #4 es la mejor para separar los sitios
+    summary(Bio1.pca)
+    summary(Bio4.pca)                 # By default scaling=2
+    # This means that by default, the correlation among the descriptors is conserved
+    
+    # For a scale that conserves the euclidian distance among objects you have:
+    summary(Bio4.pca, scaling=1)       # Using scaling=1
+    
+    eigenval <- Bio4.pca$CA$eig   # Here you will get the eigenvalues
+    sitecoord <- Bio4.pca$CA$u[,1:2]   # The site coordinates along PC1 and PC2
+    
+# Plotting the results of the PCA 
+#####################################
+
+    # With scaling 1:
+    biplot(Bio4.pca, scaling=1,main="PCA - Scaling 1")
+    
+    # With scaling 2 by default
+    biplot(Bio4.pca,main="PCA - Scaling 2")       # by default: scaling type 2
+    
+    # With scaling 3 by default
+    biplot(Bio4.pca, scaling=3, main="PCA - Scaling 3")       # by default: scaling type 2
+
+```
+   
+```{r}
+Bio4.pca1 <- rda(bio.transf.4, scale=TRUE)
+Bio4.pca <- prcomp(bio.transf.4, scale=TRUE)
+summary(Bio4.pca1)
+
+# Checking if the PC axes are meaningful
+eigenval <- Bio4.pca1$CA$eig   # Here you will get the eigenvalues
+sitecoord <- Bio4.pca1$CA$u[,1:2]   # The site coordinates along PC1 and PC2
+  eig <- data.frame(eigenval)
+  eig$nb <- c(1:length(eigenval))
+  eig$prop <- eig$eigenval/sum(eig$eigenval)
+  eig
+  
+# (Kaiser-Guttman)
+par(mfrow=c(1,2))
+  barplot(eig$eigenval, main="Eigenvalues",las=2)
+  abline(h=mean(eig$eigenval),col="red")    # average eigenvalue
+  legend("topright","Average eigenvalue",lwd=1,col=2,bty="n")
+  
+  barplot(100*eig$prop,main="% of variance",las=2)
+par(mfrow=c(1,1))
+
+autoplot(Bio4.pca, data = Abundancias2, colour="Site", 
+         shape="Site",
+         loadings = TRUE, loadings.colour = 'black',
+         loadings.label = TRUE, loadings.label.size = 3,
+         loadings.label.vjust = -1.0,
+         loadings.label.colour="black",
+         frame = TRUE, frame.type = 'norm')+
+MyTheme + Site_shapes13 
+
+autoplot(Bio4.pca, data = Abundancias2, colour="TimePoint", 
+         shape="Site",
+         loadings = TRUE, loadings.colour = 'black',
+         loadings.label = TRUE, loadings.label.size = 3,
+         loadings.label.vjust = -1.0,
+         loadings.label.colour="black",
+         frame = TRUE, frame.type = 'norm')+
+MyTheme + Site_shapes13 
+
+```
+
+
+Podemos intentar graficar los parametros Datas con los biologicos. 
+* Para eso hay correr el PCA con otro paquete
+* Este PCA puede verse super bacano, pero necesita que removamos algunas de las variables
+
+```{r}
+# #library(FactoMineR)
+#     
+# str(Bio)
+# ExtraBio<-Bio[, 24:28]
+# str(Data.mean)
+# str(Coordinates)
+# str(bio.transf.4)
+# 
+# Bio.data<-cbind(bio.transf.4, ExtraBio, Data.mean)
+# str(Bio.data)
+# 
+# biologico.PCA <- PCA(Bio.data, quanti.sup =21:34)
+#     
+#     # Results
+#     biologico.PCA
+# 
+#     # You could then look at the eigenvalues, coordinates of sites and descriptors, ...
+#     biologico.PCA$eig
+#     biologico.PCA$ind$coord
+#     biologico.PCA$var$coord
+#     
+    
+# Note that the supplementary/additional descriptors are now in blue in the plot
+
+# An other one is that it can handle missing data (see PCA help/documentation)
+
+```
+
+## Clasificacion con datos biologicos
+* Use bio2 Data (Solo datos de abundancia)
+
+```{r}
+
+head(bio.transf.4, n=2)
+
+d <- dist(bio.transf.4, method="euclidian")
+              # methods:
+                # 	euclidean
+                # 	maximum
+                # 	manhattan
+                # 	canberra
+                # 	binary
+                # 	minkowski
+
+tW <- hclust(d, method="ward.D")
+            # method:
+              # 	ward.D: synoptic, best after a CA, applicable here
+              # 	ward.D2: 
+              # 	single: descriptive
+              # 	complete: synoptic but less compact than ward
+              # 	average
+              # 	mcquitty
+              # 	median
+              # 	centroid
+
+plot(tW, hang=-1)
+# -> very compact groups <- effect of Ward's method. To be read only at the level of large groups
+# cut three large groups
+rect.hclust(tW, k=3)
+# get the cluster numbers
+clusters <- cutree(tW, k=3)
+
+tS <- hclust(d, method="single")
+plot(tS, hang=-1)
+rect.hclust(tS, k=3)
+# -> the change of aggregation method changed the structure of the tree. But this tree is not meant to look at general tendencies. It is meant to examine precise links between objects
+
+# METODO COMPLETO
+  #tiff('Cluster_Bco.tiff', units="in", width=7, height=6, res=200)
+  tC <- hclust(d, method="complete")
+  plot(tC, hang=-1, xlab = "", ylab = "", main = "")
+  plot(tC,  xlab = "", ylab = "", main = "")
+  rect.hclust(tC, k=3)
+  #dev.off()
+```
+
+# Mapas
+
+```{r}
+
+# Atrato 
+
+Golfo <- c(left = -77.5, bottom = 7.6, right = -76.3, top = 9)
+  GolfoMap<-get_stamenmap(Golfo, zoom = 10, maptype = "toner-lite")
+  GolfoMap2<-ggmap(GolfoMap)
+  
+  # library(ggrepel)
+  AtratoPublication<-GolfoMap2 + geom_point(data=Data, 
+                                           aes(x=Lon, y=Lat), alpha=0.8, size=2) +
+    geom_text_repel(data=Data, aes(x=Lon, y=Lat, label = Site), size=3)
+  AtratoPublication
+  
+# Colombia
+Colombia <- c(left = -79.3, bottom = -0, right = -66.8, top = 13)
+  ColombiaMap<-get_stamenmap(Colombia, zoom = 5, maptype = "toner-lite")
+  ColombiaMap2<-ggmap(ColombiaMap)
+  ColombiaMap2
+    
+# Golfo con variables
+  
+Riqueza_map <- GolfoMap2 + geom_point(data=Data, aes(x=Data$Lon, y=Data$Lat, 
+                            colour=Biovolumen, size=Taxa_S))+
+    scale_colour_gradient(low="blue", high = "red")+
+    geom_text_repel(data=Data, aes(x=Lon, y=Lat, label = Site), size=3)
+ Riqueza_map
+
+ Densidad_map<-GolfoMap2 + geom_point(data=Data, aes(x=Data$Lon, y=Data$Lat, 
+                            colour=Taxa_S, size=Biovolumen))+
+    scale_colour_gradient(low="blue", high = "red")+
+    geom_text_repel(data=Data, aes(x=Lon, y=Lat, label = Site), size=3)
+Densidad_map
+    
+# Copepoda_map1<-GolfoMap2 + geom_point(data=Data, aes(x=Data$lon, y=Data$lat, 
+#                             colour=Copepoda/1000, size=Densidad))+
+#     scale_colour_gradient(low="blue", high = "red")+
+#     geom_text_repel(data=Data, aes(x=lon, y=lat, label = Site), size=3)
+#     
+# Copepoda_map2<-GolfoMap2 + geom_point(data=Data, aes(x=Data$lon, y=Data$lat, 
+#                             colour=Densidad, size=Copepoda/1000))+
+#     scale_colour_gradient(low="blue", high = "red")+
+#     geom_text_repel(data=Data, aes(x=lon, y=lat, label = Site), size=3)
+# 
+# Copepoda_map3<-GolfoMap2 + geom_point(data=Data, aes(x=Data$lon, y=Data$lat, 
+#                             colour=Taxa_S, size=Copepoda/1000))+
+#     scale_colour_gradient(low="blue", high = "red")+
+#     geom_text_repel(data=Data, aes(x=lon, y=lat, label = Site), size=3)
+
+```
+
+
+# Packages used
+
+```{r}
+# Creates bibliography 
+#knitr::write_bib(c(.packages()), "packages.bib")
+```
